@@ -5,13 +5,14 @@ import re
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 
 from app.ml.model import image_to_embedding, load_model
 from app.ml.similarity import cosine_similarity
 from app.storage.embeddings import load_embeddings, save_embedding
+from app.storage.metadata import load_metadata, save_metadata
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -47,6 +48,8 @@ async def health() -> dict[str, str]:
 async def register_image(
     label: str,
     file: Annotated[UploadFile, File(description="jpg, png, or webp image")],
+    title: Annotated[str, Form(max_length=100)],
+    description: Annotated[str, Form(max_length=250)],
 ) -> dict[str, bool | str]:
     safe_label = validate_label(label)
     image, suffix = await read_image_upload(file)
@@ -56,14 +59,20 @@ async def register_image(
 
     embedding = image_to_embedding(image)
     save_embedding(safe_label, embedding)
+    save_metadata(safe_label, title, description)
 
-    return {"success": True, "label": safe_label}
+    return {
+        "success": True,
+        "label": safe_label,
+        "title": title,
+        "description": description,
+    }
 
 
 @app.post("/predict")
 async def predict(
     file: Annotated[UploadFile, File(description="jpg, png, or webp image")],
-) -> dict[str, str | float | dict[str, float]]:
+) -> dict[str, str | float | dict[str, float] | None]:
     registered = load_embeddings()
     if not registered:
         raise HTTPException(status_code=400, detail="No reference embeddings registered")
@@ -78,10 +87,13 @@ async def predict(
     best_label = max(scores, key=scores.get)
     confidence = scores[best_label]
     prediction = best_label if confidence >= SIMILARITY_THRESHOLD else "unknown"
+    metadata = load_metadata().get(prediction) if prediction != "unknown" else None
 
     return {
         "prediction": prediction,
         "confidence": confidence,
+        "title": metadata["title"] if metadata else None,
+        "description": metadata["description"] if metadata else None,
         "scores": scores,
     }
 
