@@ -49,7 +49,7 @@ async def register_image(
     label: str,
     file: Annotated[UploadFile, File(description="jpg, png, or webp image")],
     title: Annotated[str, Form(max_length=100)],
-    description: Annotated[str, Form(max_length=250)],
+    description: Annotated[str, Form(max_length=5000)],
 ) -> dict[str, bool | str]:
     safe_label = validate_label(label)
     image, suffix = await read_image_upload(file)
